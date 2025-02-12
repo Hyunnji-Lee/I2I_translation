@@ -91,7 +91,7 @@ class BrownianBridgeModel(nn.Module):
         else:
             context = y if context is None else context
         b, c, h, w, device, img_size, = *x.shape, x.device, self.image_size
-        assert h == img_size and w == img_size, f'height and width of image must be {img_size}'
+        assert h == img_size and w == img_size, f'height and width of image must be {img_size}, not {h},{w}'
         t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
         return self.p_losses(x, y, context, t)
 

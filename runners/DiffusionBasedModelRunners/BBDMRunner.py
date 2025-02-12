@@ -32,7 +32,7 @@ class BBDMRunner(DiffusionBaseRunner):
         states = None
         if self.config.model.only_load_latent_mean_std:
             if self.config.model.__contains__('model_load_path') and self.config.model.model_load_path is not None:
-                states = torch.load(self.config.model.model_load_path, map_location='cpu')
+                states = torch.load(self.config.model.model_load_path, map_location='cuda')
         else:
             states = super().load_model_from_checkpoint()
 
@@ -181,8 +181,6 @@ class BBDMRunner(DiffusionBaseRunner):
         reverse_sample_path = make_dir(os.path.join(sample_path, 'reverse_sample'))
         reverse_one_step_path = make_dir(os.path.join(sample_path, 'reverse_one_step_samples'))
 
-        print(sample_path)
-
         (x, x_name), (x_cond, x_cond_name) = batch
 
         batch_size = x.shape[0] if x.shape[0] < 4 else 4
@@ -241,13 +239,19 @@ class BBDMRunner(DiffusionBaseRunner):
                 # sample = net.sample_vqgan(x)
                 for i in range(batch_size):
                     condition = x_cond[i].detach().clone()
+                    condition_name = x_cond_name[i]
+                
                     gt = x[i]
+                    gt_name = x_name[i]
+                    
                     result = sample[i]
+                    result_name = 'ct_result'
+                    
                     if j == 0:
-                        save_single_image(condition, condition_path, f'{x_cond_name[i]}.png', to_normal=to_normal)
-                        save_single_image(gt, gt_path, f'{x_name[i]}.png', to_normal=to_normal)
+                        save_single_image(condition, condition_name,  condition_path, f'{x_cond_name[i]}.npy', to_normal=to_normal)
+                        save_single_image(gt, gt_name, gt_path, f'{x_name[i]}.npy', to_normal=to_normal)
                     if sample_num > 1:
                         result_path_i = make_dir(os.path.join(result_path, x_name[i]))
-                        save_single_image(result, result_path_i, f'output_{j}.png', to_normal=to_normal)
+                        save_single_image(result, result_name, result_path_i, f'output_{j}.npy', to_normal=to_normal)
                     else:
-                        save_single_image(result, result_path, f'{x_name[i]}.png', to_normal=to_normal)
+                        save_single_image(result, result_name, result_path, f'{x_name[i]}.npy', to_normal=to_normal)

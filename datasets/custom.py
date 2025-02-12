@@ -12,28 +12,11 @@ import cv2
 import os
 
 
-@Registers.datasets.register_with_name('custom_single')
-class CustomSingleDataset(Dataset):
-    def __init__(self, dataset_config, stage='train'):
-        super().__init__()
-        self.image_size = (dataset_config.image_size, dataset_config.image_size)
-        image_paths = get_image_paths_from_dir(os.path.join(dataset_config.dataset_path, stage))
-        self.flip = dataset_config.flip if stage == 'train' else False
-        self.to_normal = dataset_config.to_normal
-
-        self.imgs = ImagePathDataset(image_paths, self.image_size, flip=self.flip, to_normal=self.to_normal)
-
-    def __len__(self):
-        return len(self.imgs)
-
-    def __getitem__(self, i):
-        return self.imgs[i], self.imgs[i]
-
-
 @Registers.datasets.register_with_name('custom_aligned')
 class CustomAlignedDataset(Dataset):
     def __init__(self, dataset_config, stage='train'):
         super().__init__()
+        
         self.image_size = (dataset_config.image_size, dataset_config.image_size)
         image_paths_ori = get_image_paths_from_dir(os.path.join(dataset_config.dataset_path, f'{stage}/B'))
         image_paths_cond = get_image_paths_from_dir(os.path.join(dataset_config.dataset_path, f'{stage}/A'))
@@ -49,158 +32,83 @@ class CustomAlignedDataset(Dataset):
     def __getitem__(self, i):
         return self.imgs_ori[i], self.imgs_cond[i]
 
+##########
+# synthrad dataset
+# (for using original nifti file)
+##########
+    
+import os
+import nibabel as nib
+import numpy as np
+import torch
+from torch.utils.data import Dataset, random_split
 
-@Registers.datasets.register_with_name('custom_colorization_LAB')
-class CustomColorizationLABDataset(Dataset):
+@Registers.datasets.register_with_name('synthrad_dataset')
+class SynthradDataset(Dataset):
     def __init__(self, dataset_config, stage='train'):
         super().__init__()
-        self.image_size = (dataset_config.image_size, dataset_config.image_size)
-        self.image_paths = get_image_paths_from_dir(os.path.join(dataset_config.dataset_path, stage))
-        self.flip = dataset_config.flip if stage == 'train' else False
-        self.to_normal = dataset_config.to_normal
-        self._length = len(self.image_paths)
+        self.brain_dir = dataset_config.dataset_path  
+        self.ratio = (0.8, 0.1, 0.1)  # (train, val, test)
+        self.stage = stage
+        self.axis = 2
+        self.randomseed = 42
+        self.image_size = 128  
+
+        # Load CBCT, CT data
+        self.brain_files = [f for f in os.listdir(self.brain_dir) if f != 'overview']
+
+        # fix random seed
+        np.random.seed(self.randomseed)
+        torch.manual_seed(self.randomseed)
+
+        # Train/Val/Test Split
+        total_cases = len(self.brain_files)
+        train_size = int(self.ratio[0] * total_cases)
+        val_size = int(self.ratio[1] * total_cases)
+        test_size = total_cases - train_size - val_size
+
+        shuffled_files = np.random.permutation(self.brain_files)  
+        self.train_files = shuffled_files[:train_size]
+        self.val_files = shuffled_files[train_size:train_size + val_size]
+        self.test_files = shuffled_files[train_size + val_size:]
+
+        # 현재 stage에 맞는 데이터셋 선택
+        if self.stage == 'train':
+            self.brain_files = self.train_files
+        elif self.stage == 'val':
+            self.brain_files = self.val_files
+        elif self.stage == 'test':
+            self.brain_files = self.test_files
+        else:
+            raise ValueError(f"Invalid stage: {self.stage}")
 
     def __len__(self):
-        if self.flip:
-            return self._length * 2
-        return self._length
+        return len(self.brain_files) * 60 #60 slices per case
+    
+    def __getitem__(self, idx):
+        sample_idx = idx // 60  # case ID
+        slice_idx = idx % 60    # 해당 환자의 몇 번째 슬라이스인지
 
-    def __getitem__(self, index):
-        p = False
-        if index >= self._length:
-            index = index - self._length
-            p = True
+        sample_folder = self.brain_files[sample_idx]
+        sample_dir = os.path.join(self.brain_dir, sample_folder)
 
-        img_path = self.image_paths[index]
-        image = None
-        try:
-            image = cv2.imread(img_path)
-            if self.to_lab:
-                image = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
-        except BaseException as e:
-            print(img_path)
+        cbct_path = os.path.join(sample_dir, 'cbct.nii.gz')
+        ct_path = os.path.join(sample_dir, 'ct.nii.gz')
 
-        if p:
-            image = cv2.flip(image, 1)
-        image = cv2.resize(image, self.image_size, interpolation=cv2.INTER_LINEAR)
-        image = torch.Tensor(image)
-        image = image.permute(2, 0, 1).contiguous()
+        cbct_image = nib.load(cbct_path).get_fdata()
+        ct_image = nib.load(ct_path).get_fdata()
 
-        if self.to_normal:
-            image = (image - 127.5) / 127.5
-            image.clamp_(-1., 1.)
-
-        L = image[0:1, :, :]
-        ab = image[1:, :, :]
-        cond = torch.cat((L, L, L), dim=0)
-        return image, cond
-
-
-@Registers.datasets.register_with_name('custom_colorization_RGB')
-class CustomColorizationRGBDataset(Dataset):
-    def __init__(self, dataset_config, stage='train'):
-        super().__init__()
-        self.image_size = (dataset_config.image_size, dataset_config.image_size)
-        self.image_paths = get_image_paths_from_dir(os.path.join(dataset_config.dataset_path, stage))
-        self.flip = dataset_config.flip if stage == 'train' else False
-        self.to_normal = dataset_config.to_normal
-        self._length = len(self.image_paths)
-
-    def __len__(self):
-        if self.flip:
-            return self._length * 2
-        return self._length
-
-    def __getitem__(self, index):
-        p = False
-        if index >= self._length:
-            index = index - self._length
-            p = True
-
+        cbct_slice = np.take(cbct_image, slice_idx, axis=self.axis)
+        ct_slice = np.take(ct_image, slice_idx, axis=self.axis)
+       
+        # transform : resize, totensor
         transform = transforms.Compose([
-            transforms.RandomHorizontalFlip(p=p),
-            transforms.Resize(self.image_size),
-            transforms.ToTensor()
+            transforms.ToTensor(),
+            transforms.Resize((self.image_size, self.image_size))
         ])
-
-        img_path = self.image_paths[index]
-        image = None
-        try:
-            image = Image.open(img_path)
-        except BaseException as e:
-            print(img_path)
-
-        if not image.mode == 'RGB':
-            image = image.convert('RGB')
-
-        cond_image = image.convert('L')
-        cond_image = cond_image.convert('RGB')
-
-        image = transform(image)
-        cond_image = transform(cond_image)
-
-        if self.to_normal:
-            image = (image - 0.5) * 2.
-            image.clamp_(-1., 1.)
-            cond_image = (cond_image - 0.5) * 2.
-            cond_image.clamp_(-1., 1.)
-
-        image_name = Path(img_path).stem
-        return (image, image_name), (cond_image, image_name)
-
-
-@Registers.datasets.register_with_name('custom_inpainting')
-class CustomInpaintingDataset(Dataset):
-    def __init__(self, dataset_config, stage='train'):
-        super().__init__()
-        self.image_size = (dataset_config.image_size, dataset_config.image_size)
-        self.image_paths = get_image_paths_from_dir(os.path.join(dataset_config.dataset_path, stage))
-        self.flip = dataset_config.flip if stage == 'train' else False
-        self.to_normal = dataset_config.to_normal
-        self._length = len(self.image_paths)
-
-    def __len__(self):
-        if self.flip:
-            return self._length * 2
-        return self._length
-
-    def __getitem__(self, index):
-        p = 0.
-        if index >= self._length:
-            index = index - self._length
-            p = 1.
-
-        transform = transforms.Compose([
-            transforms.RandomHorizontalFlip(p=p),
-            transforms.Resize(self.image_size),
-            transforms.ToTensor()
-        ])
-
-        img_path = self.image_paths[index]
-        image = None
-        try:
-            image = Image.open(img_path)
-        except BaseException as e:
-            print(img_path)
-
-        if not image.mode == 'RGB':
-            image = image.convert('RGB')
-
-        image = transform(image)
-
-        if self.to_normal:
-            image = (image - 0.5) * 2.
-            image.clamp_(-1., 1.)
-
-        height, width = self.image_size
-        mask_width = random.randint(128, 180)
-        mask_height = random.randint(128, 180)
-        mask_pos_x = random.randint(0, height - mask_height)
-        mask_pos_y = random.randint(0, width - mask_width)
-        mask = torch.ones_like(image)
-        mask[:, mask_pos_x:mask_pos_x+mask_height, mask_pos_y:mask_pos_y+mask_width] = 0
-
-        cond_image = image * mask
-
-        image_name = Path(img_path).stem
-        return (image, image_name), (cond_image, image_name)
+        
+        cbct_slice = transform(cbct_slice)
+        ct_slice = transform(ct_slice)
+        
+        return cbct_slice, ct_slice
+    

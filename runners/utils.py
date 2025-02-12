@@ -6,7 +6,7 @@ from datetime import datetime
 from torchvision.utils import make_grid, save_image
 from Register import Registers
 from datasets.custom import CustomSingleDataset, CustomAlignedDataset, CustomInpaintingDataset
-
+import numpy as np
 
 def remove_file(fpath):
     if os.path.exists(fpath):
@@ -65,15 +65,34 @@ def get_dataset(data_config):
 
 
 @torch.no_grad()
-def save_single_image(image, save_path, file_name, to_normal=True):
+def save_single_image(image, image_name, save_path, file_name, to_normal=True):
     image = image.detach().clone()
-    if to_normal:
+    if to_normal: #[-1,1] -> [0,1]
         image = image.mul_(0.5).add_(0.5).clamp_(0, 1.)
-    image = image.mul_(255).add_(0.5).clamp_(0, 255).permute(1, 2, 0).to('cpu', torch.uint8).numpy()
-    im = Image.fromarray(image)
-    im.save(os.path.join(save_path, file_name))
-
-
+    
+    img_max, img_min = None, None
+    
+    if image_name.startswith('cbct'):
+        # recover cbct norm
+        if image_name.startswith('cbct_2BA'):
+            img_max, img_min = 3000.0, 0
+        elif image_name.startswith('cbct_2BB'):
+            img_max, img_min = 2000.0, -1000.0
+        elif image_name.startswith('cbct_2BC'):
+            img_max, img_min = 3000.0, -1024.0
+            
+    elif image_name.startswith('ct'):
+        # recover ct norm
+        img_max, img_min = 3000.0, -1024.0       
+        
+    if img_max is None or img_min is None:
+            raise ValueError(f"Unknown image type: {image_name}")
+        
+    image = image.mul_(img_max-img_min).add_(img_min).clamp_(img_min, img_max) #[0,1] -> original scale
+    image = image.permute(1, 2, 0).to('cpu').numpy()
+    
+    np.save(os.path.join(save_path, file_name), image)
+     
 @torch.no_grad()
 def get_image_grid(batch, grid_size=4, to_normal=True):
     batch = batch.detach().clone()

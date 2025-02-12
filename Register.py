@@ -9,7 +9,7 @@ class Register:
         self._name = registry_name
 
     def __setitem__(self, key, value):
-        if not callable(value):
+        if not callable(value) and not isinstance(value, type):
             raise Exception(f"Value of a Registry must be a callable")
         if key is None:
             key = value.__name__

@@ -112,7 +112,7 @@ class BaseRunner(ABC):
         model_states = None
         if self.config.model.__contains__('model_load_path') and self.config.model.model_load_path is not None:
             self.logger(f"load model {self.config.model.model_name} from {self.config.model.model_load_path}")
-            model_states = torch.load(self.config.model.model_load_path, map_location='cpu')
+            model_states = torch.load(self.config.model.model_load_path, map_location='cuda')
 
             self.global_epoch = model_states['epoch']
             self.global_step = model_states['step']
@@ -128,7 +128,7 @@ class BaseRunner(ABC):
             # load optimizer and scheduler
             if self.config.args.train:
                 if self.config.model.__contains__('optim_sche_load_path') and self.config.model.optim_sche_load_path is not None:
-                    optimizer_scheduler_states = torch.load(self.config.model.optim_sche_load_path, map_location='cpu')
+                    optimizer_scheduler_states = torch.load(self.config.model.optim_sche_load_path, map_location='cuda')
                     for i in range(len(self.optimizer)):
                         self.optimizer[i].load_state_dict(optimizer_scheduler_states['optimizer'][i])
 
@@ -365,17 +365,17 @@ class BaseRunner(ABC):
             train_loader = DataLoader(train_dataset,
                                       batch_size=self.config.data.train.batch_size,
                                       shuffle=self.config.data.train.shuffle,
-                                      num_workers=8,
+                                      num_workers=1,
                                       drop_last=True)
             val_loader = DataLoader(val_dataset,
                                     batch_size=self.config.data.val.batch_size,
                                     shuffle=self.config.data.val.shuffle,
-                                    num_workers=8,
+                                    num_workers=1,
                                     drop_last=True)
             test_loader = DataLoader(test_dataset,
                                      batch_size=self.config.data.test.batch_size,
                                      shuffle=False,
-                                     num_workers=8,
+                                     num_workers=1,
                                      drop_last=True)
 
         epoch_length = len(train_loader)
@@ -488,12 +488,12 @@ class BaseRunner(ABC):
                             torch.save(optimizer_scheduler_states,
                                        os.path.join(self.config.result.ckpt_path,
                                                     f'latest_optim_sche_{epoch + 1}.pth'))
-                            torch.save(model_states,
-                                       os.path.join(self.config.result.ckpt_path,
-                                                    f'last_model.pth'))
-                            torch.save(optimizer_scheduler_states,
-                                       os.path.join(self.config.result.ckpt_path,
-                                                    f'last_optim_sche.pth'))
+#                             torch.save(model_states,
+#                                        os.path.join(self.config.result.ckpt_path,
+#                                                     f'last_model.pth'))
+#                             torch.save(optimizer_scheduler_states,
+#                                        os.path.join(self.config.result.ckpt_path,
+#                                                     f'last_optim_sche.pth'))
 
                             # save top_k checkpoints
                             model_ckpt_name = f'top_model_epoch_{epoch + 1}.pth'
@@ -501,6 +501,8 @@ class BaseRunner(ABC):
 
                             if self.config.args.save_top:
                                 print("save top model start...")
+                                print(average_loss)
+                                
                                 top_key = 'top'
                                 if top_key not in self.topk_checkpoints:
                                     print('top key not in topk_checkpoints')
