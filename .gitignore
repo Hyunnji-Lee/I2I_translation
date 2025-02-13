@@ -1,2 +1,4 @@
-brain_data/
-results/
+data/
+unet_dataset/
+unet_result_image/
+unet_results/
